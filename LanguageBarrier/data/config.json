@@ -1,16 +1,16 @@
 {
     "__schema_version": 1,
     "general": {
-        "fixTranslation": true,
+        "fixTranslation": false,
         "replaceCGs": true,
         "improveTextDisplay": true,
         "textureFiltering": true,
         "exitBlackScreenFix": true
     },
     "fmv": {
-        "enableKaraokeSubs": true,
+        "enableKaraokeSubs": false,
         "enableLqKaraokeSubs": false,
-        "enableJpVideoSubs": false,
+        "enableJpVideoSubs": true,
         "useHqAudio": true
     }
 }
