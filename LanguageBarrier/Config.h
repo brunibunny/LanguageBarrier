@@ -64,7 +64,7 @@ class Config {
 
  public:
   static Config& config() {
-    static Config s(defaultConfigJsonStr, L"Committee of Zero\\SGHD\\config.json",
+    static Config s(defaultConfigJsonStr, L"VNX+\\SGHDbr\\config.json",
                     FOLDERID_LocalAppData);
     return s;
   }
