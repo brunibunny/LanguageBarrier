@@ -205,11 +205,15 @@ int __cdecl earlyInitHook(int unk0, int unk1) {
           (LPVOID)&mpkFopenByIdHook, (LPVOID *)&gameExeMpkFopenByIdReal))
     return retval;
 
-  if (Config::config().j["general"]["improveTextDisplay"].get<bool>() == true) {
+  if (Config::config().j["improveTextDisplay"].get<bool>() == true) {
     gameTextInit();
   }
 
-  if (Config::config().j["general"]["textureFiltering"].get<bool>() == true) {
+  if (Config::config().j["improveTextDisplayUB"].get<bool>() == true) {
+	gameTextUBInit();
+  }
+
+  if (Config::config().j["textureFiltering"].get<bool>() == true) {
     LanguageBarrierLog("Forcing bilinear filtering");
     uint8_t *branch = (uint8_t *)sigScan("game", "textureFilteringBranch");
     if (branch != NULL) {
@@ -237,14 +241,16 @@ int __fastcall mpkFopenByIdHook(void *pThis, void *EDX, void *mpkObject,
 #endif
 
   std::vector<std::string> categories;
-  if (Config::config().j["general"]["replaceCGs"].get<bool>() == true)
+  if (Config::config().j["replaceCGs"].get<bool>() == true)
     categories.push_back("hqCG");
-  if (Config::config().j["fmv"]["useHqAudio"].get<bool>() == true)
+  if (Config::config().j["useHqAudio"].get<bool>() == true)
     categories.push_back("hqAudio");
-  if (Config::config().j["general"]["fixTranslation"].get<bool>() == true)
+  if (Config::config().j["fixTranslation"].get<bool>() == true)
     categories.push_back("fixTranslation");
-  if (Config::config().j["general"]["improveTextDisplay"].get<bool>() == true)
+  if (Config::config().j["improveTextDisplay"].get<bool>() == true)
     categories.push_back("font");
+  if (Config::config().j["improveTextDisplayUB"].get<bool>() == false)
+	categories.push_back("fontUB");
 
   for (const auto &i : categories) {
     if (Config::fileredirection().j[i].count((char *)mpkFilename) > 0) {
@@ -273,7 +279,7 @@ int __cdecl mpkFslurpByIdHook(uint8_t mpkId, int fileId, void **ppOutData) {
 
 const char *__cdecl getStringFromScriptHook(int scriptId, int stringId) {
   int fileId = scriptIdsToFiles[scriptId];
-  if (Config::config().j["general"]["fixTranslation"].get<bool>() == true) {
+  if (Config::config().j["fixTranslation"].get<bool>() == true) {
     json targets = Config::stringredirection().j["fixTranslation"];
     std::string sFileId = std::to_string(fileId);
     if (targets.count(sFileId) > 0) {
@@ -301,7 +307,7 @@ int __fastcall closeAllSystemsHook(void *pThis, void *EDX) {
 
   int retval = gameExeCloseAllSystemsReal(pThis);
 
-  if (Config::config().j["general"]["exitBlackScreenFix"].get<bool>() == true) {
+  if (Config::config().j["exitBlackScreenFix"].get<bool>() == true) {
     // Workaround for "user gets stuck on black screen when exiting while in
     // fullscreen mode": Just switch to windowed mode first.
     gameExePPresentParameters->Windowed = TRUE;

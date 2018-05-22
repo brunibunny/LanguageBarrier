@@ -31,6 +31,7 @@ static const uint16_t GLYPH_ID_FULLWIDTH_SPACE = 0;
 static const uint16_t GLYPH_ID_HALFWIDTH_SPACE = 63;
 
 void gameTextInit();
+void gameTextUBInit();
 }
 
 #endif  // !__GAMETEXT_H__

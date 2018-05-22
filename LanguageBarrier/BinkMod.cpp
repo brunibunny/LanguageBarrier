@@ -108,7 +108,7 @@ BINK* __stdcall BinkOpenHook(const char* name, uint32_t flags) {
   if (strrchr(tmp, '\\')) tmp = strrchr(tmp, '\\') + 1;
   if (strrchr(tmp, '/')) tmp = strrchr(tmp, '/') + 1;
 
-  if (Config::config().j["fmv"]["useHqAudio"].get<bool>() == true &&
+  if (Config::config().j["useHqAudio"].get<bool>() == true &&
       Config::fmv().j["hqAudio"].count(tmp) == 1) {
     // TODO: temporarily set BGM volume to match movie volume, then revert in
     // BinkCloseHook
@@ -126,13 +126,13 @@ BINK* __stdcall BinkOpenHook(const char* name, uint32_t flags) {
   std::string subFileName;
   // TODO: support more than one track?
   // note: case sensitive
-  if (Config::config().j["fmv"]["enableJpVideoSubs"].get<bool>() == true &&
+  if (Config::config().j["enableJpVideoSubs"].get<bool>() == true &&
       Config::fmv().j["subs"]["jpVideo"].count(tmp) == 1)
     subFileName = Config::fmv().j["subs"]["jpVideo"][tmp].get<std::string>();
-  if (Config::config().j["fmv"]["enableKaraokeSubs"].get<bool>() == true &&
+  if (Config::config().j["enableKaraokeSubs"].get<bool>() == true &&
       Config::fmv().j["subs"]["karaoke"].count(tmp) == 1)
     subFileName = Config::fmv().j["subs"]["karaoke"][tmp].get<std::string>();
-  if (Config::config().j["fmv"]["enableLqKaraokeSubs"].get<bool>() == true &&
+  if (Config::config().j["enableLqKaraokeSubs"].get<bool>() == true &&
       Config::fmv().j["subs"]["lqKaraoke"].count(tmp) == 1)
     subFileName = Config::fmv().j["subs"]["lqKaraoke"][tmp].get<std::string>();
 
