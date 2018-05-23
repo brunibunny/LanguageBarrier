@@ -205,8 +205,14 @@ int __cdecl earlyInitHook(int unk0, int unk1) {
           (LPVOID)&mpkFopenByIdHook, (LPVOID *)&gameExeMpkFopenByIdReal))
     return retval;
 
-  if (Config::config().j["general"]["improveTextDisplay"].get<bool>() == true) {
-    gameTextInit();
+  if (Config::config().j["general"]["font"].get<std::string>() == "NotoSans" &&
+	  Config::config().j["general"]["improveTextDisplay"].get<bool>() == true) {
+	  gameTextInitNotoSans();
+  }
+
+  if (Config::config().j["general"]["font"].get<std::string>() == "Ubuntu" &&
+	  Config::config().j["general"]["improveTextDisplay"].get<bool>() == true) {
+	  gameTextInitUbuntu();
   }
 
   if (Config::config().j["general"]["textureFiltering"].get<bool>() == true) {
@@ -237,14 +243,15 @@ int __fastcall mpkFopenByIdHook(void *pThis, void *EDX, void *mpkObject,
 #endif
 
   std::vector<std::string> categories;
-  if (Config::config().j["general"]["replaceCGs"].get<bool>() == true)
     categories.push_back("hqCG");
   if (Config::config().j["fmv"]["useHqAudio"].get<bool>() == true)
     categories.push_back("hqAudio");
-  if (Config::config().j["general"]["fixTranslation"].get<bool>() == true)
-    categories.push_back("fixTranslation");
-  if (Config::config().j["general"]["improveTextDisplay"].get<bool>() == true)
-    categories.push_back("font");
+  if (Config::config().j["general"]["font"].get<std::string>() == "NotoSans" &&
+	  Config::config().j["general"]["improveTextDisplay"].get<bool>() == true)
+	  categories.push_back("fontNotoSans");
+  if (Config::config().j["general"]["font"].get<std::string>() == "Ubuntu" &&
+	  Config::config().j["general"]["improveTextDisplay"].get<bool>() == true)
+	  categories.push_back("fontUbuntu");
 
   for (const auto &i : categories) {
     if (Config::fileredirection().j[i].count((char *)mpkFilename) > 0) {
@@ -273,24 +280,6 @@ int __cdecl mpkFslurpByIdHook(uint8_t mpkId, int fileId, void **ppOutData) {
 
 const char *__cdecl getStringFromScriptHook(int scriptId, int stringId) {
   int fileId = scriptIdsToFiles[scriptId];
-  if (Config::config().j["general"]["fixTranslation"].get<bool>() == true) {
-    json targets = Config::stringredirection().j["fixTranslation"];
-    std::string sFileId = std::to_string(fileId);
-    if (targets.count(sFileId) > 0) {
-      std::string sStringId = std::to_string(stringId);
-      if (targets[sFileId].count(sStringId) == 1) {
-#ifdef _DEBUG
-        std::stringstream logstr;
-        logstr << "redirecting string " << stringId << " in file " << fileId;
-        LanguageBarrierLog(logstr.str());
-#endif
-
-        uint32_t repId = targets[sFileId][sStringId].get<uint32_t>();
-        uint32_t offset = ((uint32_t *)stringReplacementTable.c_str())[repId];
-        return &(stringReplacementTable.c_str()[offset]);
-      }
-    }
-  }
   return gameExeGetStringFromScriptReal(scriptId, stringId);
 }
 

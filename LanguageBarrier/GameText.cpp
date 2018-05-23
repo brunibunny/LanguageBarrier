@@ -330,8 +330,8 @@ int __cdecl getSc3StringLineCountHook(int lineLength, char *sc3string,
 // (which some functions do, and others don't, except for symbols (also used in
 // Western translations) it considers full-width)
 
-void gameTextInit() {
-  std::ifstream in("languagebarrier\\font-outline.png",
+void gameTextInitNotoSans() {
+  std::ifstream in("languagebarrier\\fontNotoSans-outline.png",
                    std::ios::in | std::ios::binary);
   in.seekg(0, std::ios::end);
   outlineBuffer = new std::string(in.tellg(), 0);
@@ -454,7 +454,7 @@ void gameTextInit() {
   gameExeTipAltTitleWidthLookupReturn =
       (uintptr_t)((uint8_t *)gameExeTipAltTitleWidthLookup + 0x18);
 
-  FILE *widthsfile = fopen("languagebarrier\\widths.bin", "rb");
+  FILE *widthsfile = fopen("languagebarrier\\widthsNotoSans.bin", "rb");
   fread(widths, 1, TOTAL_NUM_CHARACTERS, widthsfile);
   fclose(widthsfile);
   memcpy(gameExeGlyphWidthsFont1, widths, GLYPH_RANGE_FULLWIDTH_START);
@@ -469,6 +469,148 @@ void gameTextInit() {
     memset(charFlags + 1, 1, 26 + 26 + 10);
     memset(charFlags + 0x80, 1, 26 + 26 + 10);
   }
+}
+
+void gameTextInitUbuntu() {
+	std::ifstream in("languagebarrier\\fontUbuntu-outline.png",
+		std::ios::in | std::ios::binary);
+	in.seekg(0, std::ios::end);
+	outlineBuffer = new std::string(in.tellg(), 0);
+	in.seekg(0, std::ios::beg);
+	in.read(&((*outlineBuffer)[0]), outlineBuffer->size());
+	in.close();
+	// gee I sure hope nothing important ever goes in OUTLINE_TEXTURE_ID...
+	gameLoadTexture(OUTLINE_TEXTURE_ID, &((*outlineBuffer)[0]),
+		outlineBuffer->size());
+	// the game loads this asynchronously - I'm not sure how to be notified it's
+	// done and I can free the buffer
+	// so I'll just do it in a hook
+
+	gameExeDrawGlyph = (DrawGlyphProc)sigScan("game", "drawGlyph");
+	gameExeDrawRectangle = (DrawRectangleProc)sigScan("game", "drawRectangle");
+	gameExeSc3Eval = (Sc3EvalProc)sigScan("game", "sc3Eval");
+	gameExeBacklogHighlightHeight =
+		(uint8_t *)sigScan("game", "backlogHighlightHeight");
+
+	if (gameExeBacklogHighlightHeight) {
+		// gameExeBacklogHighlightHeight is (negative) offset (from vertical end of
+		// glyph):
+		// add eax,-0x22 (83 C0 DE) -> add eax,-0x17 (83 C0 E9)
+		DWORD oldProtect;
+		VirtualProtect(gameExeBacklogHighlightHeight, 1, PAGE_READWRITE, &oldProtect);
+		*gameExeBacklogHighlightHeight = 0xE9;
+		VirtualProtect(gameExeBacklogHighlightHeight, 1, oldProtect, &oldProtect);
+	}
+
+	scanCreateEnableHook(
+		"game", "drawDialogue", (uintptr_t *)&gameExeDrawDialogue,
+		(LPVOID)drawDialogueHook, (LPVOID *)&gameExeDrawDialogueReal);
+	scanCreateEnableHook(
+		"game", "drawDialogue2", (uintptr_t *)&gameExeDrawDialogue2,
+		(LPVOID)drawDialogue2Hook, (LPVOID *)&gameExeDrawDialogue2Real);
+	scanCreateEnableHook("game", "dialogueLayoutRelated",
+		(uintptr_t *)&gameExeDialogueLayoutRelated,
+		(LPVOID)dialogueLayoutRelatedHook,
+		(LPVOID *)&gameExeDialogueLayoutRelatedReal);
+	scanCreateEnableHook(
+		"game", "drawPhoneText", (uintptr_t *)&gameExeDrawPhoneText,
+		(LPVOID)drawPhoneTextHook, (LPVOID *)&gameExeDrawPhoneTextReal);
+	// The following both have the same pattern and 'occurrence: 0' in the
+	// signatures.json.
+	// That's because after you hook one, the first match goes away.
+	scanCreateEnableHook("game", "getSc3StringDisplayWidthFont1",
+		(uintptr_t *)&gameExeGetSc3StringDisplayWidthFont1,
+		(LPVOID)getSc3StringDisplayWidthHook,
+		(LPVOID *)&gameExeGetSc3StringDisplayWidthFont1Real);
+	scanCreateEnableHook("game", "getSc3StringDisplayWidthFont2",
+		(uintptr_t *)&gameExeGetSc3StringDisplayWidthFont2,
+		(LPVOID)getSc3StringDisplayWidthHook,
+		(LPVOID *)&gameExeGetSc3StringDisplayWidthFont2Real);
+	scanCreateEnableHook("game", "getLinksFromSc3String",
+		(uintptr_t *)&gameExeGetLinksFromSc3String,
+		(LPVOID)getLinksFromSc3StringHook,
+		(LPVOID *)&gameExeGetLinksFromSc3StringReal);
+	scanCreateEnableHook("game", "drawInteractiveMail",
+		(uintptr_t *)&gameExeDrawInteractiveMail,
+		(LPVOID)drawInteractiveMailHook,
+		(LPVOID *)&gameExeDrawInteractiveMailReal);
+	scanCreateEnableHook(
+		"game", "drawLinkHighlight", (uintptr_t *)&gameExeDrawLinkHighlight,
+		(LPVOID)drawLinkHighlightHook, (LPVOID *)&gameExeDrawLinkHighlightReal);
+	scanCreateEnableHook("game", "getVisibleLinks",
+		(uintptr_t *)&gameExeGetVisibleLinks,
+		(LPVOID)getVisibleLinksHook,
+		NULL);
+	scanCreateEnableHook("game", "getSc3StringLineCount",
+		(uintptr_t *)&gameExeGetSc3StringLineCount,
+		(LPVOID)getSc3StringLineCountHook,
+		(LPVOID *)&gameExeGetSc3StringLineCountReal);
+
+	gameExeDialoguePages =
+		(DialoguePage_t *)(*((uint32_t *)((uint8_t *)(gameExeDrawDialogue)+
+			0x18)) -
+			0xC);
+	gameExeGlyphWidthsFont1 =
+		*(uint8_t **)((uint8_t *)(gameExeDrawPhoneText)+0x83);
+	gameExeGlyphWidthsFont2 =
+		*(uint8_t **)((uint8_t *)(gameExeDrawPhoneText)+0x74);
+	gameExeColors =
+		(int *)(*(uint32_t *)((uint8_t *)(gameExeDrawPhoneText)+0x272) - 0x4);
+
+	scanCreateEnableHook("game", "dialogueLayoutWidthLookup1",
+		&gameExeDialogueLayoutWidthLookup1,
+		dialogueLayoutWidthLookup1Hook, NULL);
+	gameExeDialogueLayoutWidthLookup1Return =
+		(uintptr_t)((uint8_t *)gameExeDialogueLayoutWidthLookup1 + 0x27);
+	scanCreateEnableHook("game", "dialogueLayoutWidthLookup2",
+		&gameExeDialogueLayoutWidthLookup2,
+		dialogueLayoutWidthLookup2Hook, NULL);
+	gameExeDialogueLayoutWidthLookup2Return =
+		(uintptr_t)((uint8_t *)gameExeDialogueLayoutWidthLookup2 + 0x12);
+	scanCreateEnableHook("game", "dialogueLayoutWidthLookup3",
+		&gameExeDialogueLayoutWidthLookup3,
+		dialogueLayoutWidthLookup3Hook, NULL);
+	gameExeDialogueLayoutWidthLookup3Return =
+		(uintptr_t)((uint8_t *)gameExeDialogueLayoutWidthLookup3 + 0x7);
+	scanCreateEnableHook("game", "tipsListWidthLookup",
+		&gameExeTipsListWidthLookup,
+		tipsListWidthLookupHook, NULL);
+	gameExeTipsListWidthLookupReturn =
+		(uintptr_t)((uint8_t *)gameExeTipsListWidthLookup + 0x14);
+	scanCreateEnableHook("game", "dialogueSetLineBreakFlags",
+		&gameExeDialogueSetLineBreakFlags,
+		dialogueSetLineBreakFlagsHook, NULL);
+	gameExeLineBreakFlags =
+		(uint8_t *)(*(uint32_t *)((uint8_t *)gameExeDialogueSetLineBreakFlags + 0x12));
+	gameExeDialogueSetLineBreakFlagsReturn =
+		(uintptr_t)((uint8_t *)gameExeDialogueSetLineBreakFlags + 0x26);
+	scanCreateEnableHook("game", "newTipWidthLookup",
+		&gameExeNewTipWidthLookup,
+		newTipWidthLookupHook, NULL);
+	gameExeNewTipWidthLookupReturn =
+		(uintptr_t)((uint8_t *)gameExeNewTipWidthLookup + 0x13);
+	scanCreateEnableHook("game", "tipAltTitleWidthLookup",
+		&gameExeTipAltTitleWidthLookup,
+		tipAltTitleWidthLookupHook, NULL);
+	gameExeTipAltTitleWidthLookupReturn =
+		(uintptr_t)((uint8_t *)gameExeTipAltTitleWidthLookup + 0x18);
+
+	FILE *widthsfile = fopen("languagebarrier\\widthsUbuntu.bin", "rb");
+	fread(widths, 1, TOTAL_NUM_CHARACTERS, widthsfile);
+	fclose(widthsfile);
+	memcpy(gameExeGlyphWidthsFont1, widths, GLYPH_RANGE_FULLWIDTH_START);
+	memcpy(gameExeGlyphWidthsFont2, widths, GLYPH_RANGE_FULLWIDTH_START);
+
+	FILE *charFlagsFile = fopen("languagebarrier\\charflags.bin", "rb");
+	if (charFlagsFile) {
+		fread(charFlags, 1, TOTAL_NUM_CHARACTERS, charFlagsFile);
+		fclose(charFlagsFile);
+	}
+	else {
+		// fallback to default: english letters and digits
+		memset(charFlags + 1, 1, 26 + 26 + 10);
+		memset(charFlags + 0x80, 1, 26 + 26 + 10);
+	}
 }
 
 int __cdecl dialogueLayoutRelatedHook(int unk0, int *unk1, int *unk2, int unk3,

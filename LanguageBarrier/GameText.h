@@ -30,7 +30,8 @@ static const int PHONE_X_PADDING = 2;
 static const uint16_t GLYPH_ID_FULLWIDTH_SPACE = 0;
 static const uint16_t GLYPH_ID_HALFWIDTH_SPACE = 63;
 
-void gameTextInit();
+void gameTextInitNotoSans();
+void gameTextInitUbuntu();
 }
 
 #endif  // !__GAMETEXT_H__

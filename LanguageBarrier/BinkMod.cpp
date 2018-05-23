@@ -126,8 +126,7 @@ BINK* __stdcall BinkOpenHook(const char* name, uint32_t flags) {
   std::string subFileName;
   // TODO: support more than one track?
   // note: case sensitive
-  if (Config::config().j["fmv"]["enableJpVideoSubs"].get<bool>() == true &&
-      Config::fmv().j["subs"]["jpVideo"].count(tmp) == 1)
+  if (Config::fmv().j["subs"]["jpVideo"].count(tmp) == 1)
     subFileName = Config::fmv().j["subs"]["jpVideo"][tmp].get<std::string>();
   if (Config::config().j["fmv"]["enableKaraokeSubs"].get<bool>() == true &&
       Config::fmv().j["subs"]["karaoke"].count(tmp) == 1)
