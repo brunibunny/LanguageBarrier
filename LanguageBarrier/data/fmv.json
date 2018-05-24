@@ -30,7 +30,7 @@
         }
     },
     "videoRedirection": {
-        "placeholder.bk2": "placeholder.bk2"
+        "nullpo": "nullpo"
     },
     "audioRedirection": {
         "op.bk2": 68,
