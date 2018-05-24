@@ -25,10 +25,14 @@
         },
         "jpVideo": {
             "imv041.bk2": "imv041.bk2.ass",
-            "prologue01.bk2": "prologue01.bk2.ass"
+            "prologue01.bk2": "prologue01.bk2.ass",
+            "prologue02.bk2": "prologue02.bk2.ass"
         }
     },
-    "hqAudio": {
+    "videoRedirection": {
+        "placeholder.bk2": "placeholder.bk2"
+    },
+    "audioRedirection": {
         "op.bk2": 68,
         "ar.bk2": 81,
         "op2.bk2": 130,
@@ -52,7 +56,6 @@
         "NixieOne-Regular.ttf",
         "Roboto-Regular.ttf",
         "SilkRemington-SBold.ttf",
-        "Stilu-Light.otf",
-        "MyriadPro-Bold.otf"
+        "Stilu-Light.otf"
     ]
 }

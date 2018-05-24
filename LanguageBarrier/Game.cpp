@@ -245,7 +245,7 @@ int __fastcall mpkFopenByIdHook(void *pThis, void *EDX, void *mpkObject,
   std::vector<std::string> categories;
     categories.push_back("hqCG");
   if (Config::config().j["fmv"]["useHqAudio"].get<bool>() == true)
-    categories.push_back("hqAudio");
+    categories.push_back("audioRedirection");
   if (Config::config().j["general"]["font"].get<std::string>() == "NotoSans" &&
 	  Config::config().j["general"]["improveTextDisplay"].get<bool>() == true)
 	  categories.push_back("fontNotoSans");
@@ -356,4 +356,7 @@ void gameSetBgmPaused(bool paused) {
     return;
   gameExeAudioPlayers[AUDIO_PLAYER_ID_BGM1].playbackState = paused ? 4 : 2;
 }
+bool gameGetBgmIsPlaying() {
+	return gameExeAudioPlayers[AUDIO_PLAYER_ID_BGM1].playbackState == 2;
 }
+}  // namespace lb

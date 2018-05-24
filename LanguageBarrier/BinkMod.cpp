@@ -1,11 +1,12 @@
-#include "LanguageBarrier.h"
-#include <Simd/SimdLib.h>
-#include <unordered_map>
 #include "BinkMod.h"
-#include "Config.h"
-#include "Game.h"
+#include <Simd/SimdLib.h>
 #include <csri/csri.h>
 #include <xmmintrin.h>
+#include <fstream>
+#include <unordered_map>
+#include "Config.h"
+#include "Game.h"
+#include "LanguageBarrier.h"
 
 // partial
 typedef struct BINK {
@@ -59,6 +60,7 @@ typedef struct {
   uint32_t destheight;
   uint32_t lastFrameNum;
   csri_inst* csri;
+  int bgmState;
 } BinkModState_t;
 
 static std::unordered_map<BINK*, BinkModState_t*> stateMap;
@@ -88,40 +90,67 @@ bool binkModInit() {
           (LPVOID)&mgsBinkSetPausedHook, (LPVOID*)&gameExeMgsBinkSetPausedReal))
     return false;
 
-  for (auto font : Config::fmv().j["fonts"]) {
-    std::stringstream ss;
-    ss << "languagebarrier\\subs\\fonts\\" << font.get<std::string>();
-    std::string path = ss.str();
-    AddFontResourceExA(path.c_str(), FR_PRIVATE, NULL);
+  if (Config::fmv().j.count("fonts") == 1) {
+    for (auto font : Config::fmv().j["fonts"]) {
+      std::stringstream ss;
+      ss << "languagebarrier\\subs\\fonts\\" << font.get<std::string>();
+      std::string path = ss.str();
+      AddFontResourceExA(path.c_str(), FR_PRIVATE, NULL);
+    }
   }
 
   return true;
 }
 
 BINK* __stdcall BinkOpenHook(const char* name, uint32_t flags) {
-  BINK* bnk = BinkOpen(name, flags);
+  char* dup = _strdup(name);
+  char* tmp = dup;
+  if (strrchr(tmp, '\\')) tmp = strrchr(tmp, '\\') + 1;
+  if (strrchr(tmp, '/')) tmp = strrchr(tmp, '/') + 1;
+  _strlwr(tmp);  // case isn't always equivalent to filename on disk
+
+  BINK* bnk;
+
+  if (Config::fmv().j.count("videoRedirection") == 1 &&
+	  Config::fmv().j["videoRedirection"].count(tmp) == 1) {
+    std::string videoFileName =
+		Config::fmv().j["videoRedirection"][tmp].get<std::string>();
+    std::stringstream ssVideoPath;
+    ssVideoPath << "languagebarrier\\videos\\";
+    if (strstr(name, "1280x720")) {
+      ssVideoPath << "720p\\";
+    } else {
+      ssVideoPath << "1080p\\";
+    }
+    ssVideoPath << videoFileName;
+    std::string videoPath = ssVideoPath.str();
+    std::stringstream logstr;
+    logstr << "Redirecting " << tmp << " to " << videoPath;
+    LanguageBarrierLog(logstr.str());
+    bnk = BinkOpen(&videoPath[0], flags);
+  } else {
+    bnk = BinkOpen(name, flags);
+  }
 
   BinkModState_t* state = (BinkModState_t*)calloc(1, sizeof(BinkModState_t));
   stateMap.emplace(bnk, state);
 
-  const char* tmp = name;
-  if (strrchr(tmp, '\\')) tmp = strrchr(tmp, '\\') + 1;
-  if (strrchr(tmp, '/')) tmp = strrchr(tmp, '/') + 1;
-
-  if (Config::config().j["fmv"]["useHqAudio"].get<bool>() == true &&
-      Config::fmv().j["hqAudio"].count(tmp) == 1) {
+  if (Config::fmv().j.count("audioRedirection") == 1 &&
+	  Config::fmv().j["audioRedirection"].count(tmp) == 1) {
     // TODO: temporarily set BGM volume to match movie volume, then revert in
     // BinkCloseHook
     // TODO: support using audio from 720p Bink videos in 1080p
     // ...meh, if the music's fine who cares
-    uint32_t bgmId = Config::fmv().j["hqAudio"][tmp].get<uint32_t>();
-    gameSetBgm(bgmId, false);
+    uint32_t bgmId =
+		Config::fmv().j["audioRedirection"][tmp].get<uint32_t>();
     // we'll disable Bink audio in BinkSetVolumeHook. If we tried to do it here,
     // the game would just override it. If we tried to use BinkSetSoundOnOff,
     // the video wouldn't show (maybe the game thinks there's been an error).
     state->bgmId = bgmId;
-  } else
+    state->bgmState = 0;
+  } else {
     state->bgmId = 0;
+  }
 
   std::string subFileName;
   // TODO: support more than one track?
@@ -158,6 +187,7 @@ BINK* __stdcall BinkOpenHook(const char* name, uint32_t flags) {
     in.close();
   }
 
+  free(dup);
   return bnk;
 }
 
@@ -190,11 +220,45 @@ int32_t __stdcall BinkCopyToBufferHook(BINK* bnk, void* dest, int32_t destpitch,
                             flags);
   BinkModState_t* state = stateMap[bnk];
 
+  uint32_t destwidth = destpitch / 4;
+
+  if (state->bgmId > 0 && state->bgmState < 2) {
+    // synchronise audio/video: only allow the video to start playing beyond the
+    // first frame once we detect our BGM has started
+
+    switch (state->bgmState) {
+      case 0:
+        gameSetBgm(state->bgmId, false);
+        gameSetBgmShouldPlay(true);
+        // the game sets this back when a track gets enqueued and is ready to
+        // play
+        gameSetBgmPaused(true);
+        state->bgmState = 1;
+        break;
+      case 1:
+        if (gameGetBgmIsPlaying()) state->bgmState = 2;
+        break;
+    }
+
+    if (state->bgmState < 2) {
+      bnk->FrameNum = 0;
+      // black screen
+      size_t i, imax;
+      for (i = 0, imax = destwidth * destheight; i < imax; i += 4) {
+        __m128i* vec = (__m128i*)((uint32_t*)dest + i);
+        *vec = MaskFF000000;
+      }
+      for (; i < imax; i++) {
+        ((uint32_t*)dest)[i] = 0xFF000000;
+      }
+      return 0;
+    }
+  }
+
   if (state->csri == NULL)
     return BinkCopyToBuffer(bnk, dest, destpitch, destheight, destx, desty,
                             flags);
 
-  uint32_t destwidth = destpitch / 4;
   double time = ((double)bnk->FrameRateDiv * (double)bnk->FrameNum) /
                 (double)bnk->FrameRate;
   size_t align = SimdAlignment();
@@ -269,4 +333,4 @@ int __fastcall mgsBinkSetPausedHook(MgsBink_t* pThis, void* EDX, char paused) {
   }
   return gameExeMgsBinkSetPausedReal(pThis, paused);
 }
-}
+}  // namespace lb

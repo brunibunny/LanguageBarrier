@@ -19,6 +19,7 @@ bool gameGetBgmShouldLoop();
 void gameSetBgmShouldPlay(bool shouldPlay);
 bool gameGetBgmShouldPlay();
 void gameSetBgmPaused(bool paused);
-}
+bool gameGetBgmIsPlaying();
+}  // namespace lb
 
 #endif  // !__GAME_H__
