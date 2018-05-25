@@ -135,7 +135,7 @@ BINK* __stdcall BinkOpenHook(const char* name, uint32_t flags) {
   BinkModState_t* state = (BinkModState_t*)calloc(1, sizeof(BinkModState_t));
   stateMap.emplace(bnk, state);
 
-  if (Config::fmv().j.count("audioRedirection") == 1 &&
+  if (Config::config().j["fmv"]["useHqAudio"].get<bool>() == true &&
 	  Config::fmv().j["audioRedirection"].count(tmp) == 1) {
     // TODO: temporarily set BGM volume to match movie volume, then revert in
     // BinkCloseHook
