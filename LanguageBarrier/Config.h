@@ -10,6 +10,7 @@
 #include "data\defaultSignaturesJsonStr.h"
 #include "data\defaultFmvJsonStr.h"
 #include "data\defaultFileredirectionJsonStr.h"
+#include "data\defaultStringredirectionJsonStr.h"
 #include "lbjson.h"
 
 namespace lb {
@@ -81,6 +82,11 @@ class Config {
                     L"languagebarrier\\fileredirection.json");
     return s;
   }
+  static Config& stringredirection() {
+    static Config s(defaultStringredirectionJsonStr,
+                    L"languagebarrier\\stringredirection.json");
+    return s;
+  }
 
   json j;
 
@@ -93,6 +99,7 @@ class Config {
     sigs();
     fmv();
     fileredirection();
+    stringredirection();
   };
 };
 }

@@ -243,7 +243,9 @@ int __fastcall mpkFopenByIdHook(void *pThis, void *EDX, void *mpkObject,
 #endif
 
   std::vector<std::string> categories;
-    categories.push_back("hqCG");
+  categories.push_back("scriptRedirection");
+  categories.push_back("startupwin");
+  categories.push_back("hqCG");
   if (Config::config().j["fmv"]["useHqAudio"].get<bool>() == true)
     categories.push_back("audioRedirection");
   if (Config::config().j["general"]["font"].get<std::string>() == "NotoSans" &&
@@ -280,6 +282,22 @@ int __cdecl mpkFslurpByIdHook(uint8_t mpkId, int fileId, void **ppOutData) {
 
 const char *__cdecl getStringFromScriptHook(int scriptId, int stringId) {
   int fileId = scriptIdsToFiles[scriptId];
+  json targets = Config::stringredirection().j["startupwin"];
+    std::string sFileId = std::to_string(fileId);
+    if (targets.count(sFileId) > 0) {
+      std::string sStringId = std::to_string(stringId);
+      if (targets[sFileId].count(sStringId) == 1) {
+#ifdef _DEBUG
+        std::stringstream logstr;
+        logstr << "redirecting string " << stringId << " in file " << fileId;
+        LanguageBarrierLog(logstr.str());
+#endif
+
+        uint32_t repId = targets[sFileId][sStringId].get<uint32_t>();
+        uint32_t offset = ((uint32_t *)stringReplacementTable.c_str())[repId];
+        return &(stringReplacementTable.c_str()[offset]);
+      }
+  }
   return gameExeGetStringFromScriptReal(scriptId, stringId);
 }
 
