@@ -118,7 +118,7 @@ static void **gameExePpLoadedScripts = NULL;
 static int scriptIdsToFiles[lb::MAX_LOADED_SCRIPTS] = {0};
 
 static std::string stringReplacementTable;
-static void *c0dataMpk = NULL;
+static void *vnxdataMpk = NULL;
 
 namespace lb {
 int __cdecl earlyInitHook(int unk0, int unk1);
@@ -197,8 +197,8 @@ int __cdecl earlyInitHook(int unk0, int unk1) {
   ssMpk << drive << "\\" << dir << "languagebarrier";
   std::string lbDir = ssMpk.str();
 
-  c0dataMpk = gameMountMpk("C0DATA", &lbDir[0], "c0data.mpk");
-  LanguageBarrierLog("c0data.mpk mounted");
+  vnxdataMpk = gameMountMpk("VNXDATA", &lbDir[0], "vnxdata.mpk");
+  LanguageBarrierLog("vnxdata.mpk mounted");
 
   if (!scanCreateEnableHook(
           "game", "mpkFopenById", (uintptr_t *)&gameExeMpkFopenById,
@@ -261,9 +261,9 @@ int __fastcall mpkFopenByIdHook(void *pThis, void *EDX, void *mpkObject,
       if (Config::fileredirection().j[i][(char *)mpkFilename].count(key) == 1) {
         int newFileId =
             Config::fileredirection().j[i][(char *)mpkFilename][key].get<int>();
-        logstr << " redirected to c0data.mpk, 0x" << std::hex << newFileId;
+        logstr << " redirected to vnxdata.mpk, 0x" << std::hex << newFileId;
         LanguageBarrierLog(logstr.str());
-        return gameExeMpkFopenByIdReal(pThis, c0dataMpk, newFileId, unk3);
+        return gameExeMpkFopenByIdReal(pThis, vnxdataMpk, newFileId, unk3);
       }
     }
   }
