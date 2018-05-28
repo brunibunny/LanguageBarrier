@@ -141,8 +141,8 @@ BINK* __stdcall BinkOpenHook(const char* name, uint32_t flags) {
     // BinkCloseHook
     // TODO: support using audio from 720p Bink videos in 1080p
     // ...meh, if the music's fine who cares
-    uint32_t bgmId =
-		Config::fmv().j["audioRedirection"][tmp].get<uint32_t>();
+    uint32_t bgmId = Config::fmv().j["audioRedirection"][tmp].get<uint32_t>();
+    gameSetBgm(bgmId, false);
     // we'll disable Bink audio in BinkSetVolumeHook. If we tried to do it here,
     // the game would just override it. If we tried to use BinkSetSoundOnOff,
     // the video wouldn't show (maybe the game thinks there's been an error).
@@ -220,45 +220,11 @@ int32_t __stdcall BinkCopyToBufferHook(BINK* bnk, void* dest, int32_t destpitch,
                             flags);
   BinkModState_t* state = stateMap[bnk];
 
-  uint32_t destwidth = destpitch / 4;
-
-  if (state->bgmId > 0 && state->bgmState < 2) {
-    // synchronise audio/video: only allow the video to start playing beyond the
-    // first frame once we detect our BGM has started
-
-    switch (state->bgmState) {
-      case 0:
-        gameSetBgm(state->bgmId, false);
-        gameSetBgmShouldPlay(true);
-        // the game sets this back when a track gets enqueued and is ready to
-        // play
-        gameSetBgmPaused(true);
-        state->bgmState = 1;
-        break;
-      case 1:
-        if (gameGetBgmIsPlaying()) state->bgmState = 2;
-        break;
-    }
-
-    if (state->bgmState < 2) {
-      bnk->FrameNum = 0;
-      // black screen
-      size_t i, imax;
-      for (i = 0, imax = destwidth * destheight; i < imax; i += 4) {
-        __m128i* vec = (__m128i*)((uint32_t*)dest + i);
-        *vec = MaskFF000000;
-      }
-      for (; i < imax; i++) {
-        ((uint32_t*)dest)[i] = 0xFF000000;
-      }
-      return 0;
-    }
-  }
-
   if (state->csri == NULL)
     return BinkCopyToBuffer(bnk, dest, destpitch, destheight, destx, desty,
                             flags);
 
+  uint32_t destwidth = destpitch / 4;
   double time = ((double)bnk->FrameRateDiv * (double)bnk->FrameNum) /
                 (double)bnk->FrameRate;
   size_t align = SimdAlignment();
