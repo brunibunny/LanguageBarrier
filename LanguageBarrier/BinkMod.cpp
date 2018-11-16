@@ -1,12 +1,14 @@
 #include "BinkMod.h"
 #include <Simd/SimdLib.h>
 #include <csri/csri.h>
+#include <stb_vorbis.h>
 #include <xmmintrin.h>
 #include <fstream>
 #include <unordered_map>
 #include "Config.h"
 #include "Game.h"
 #include "LanguageBarrier.h"
+#include "SigScan.h"
 
 // partial
 typedef struct BINK {
@@ -27,12 +29,9 @@ typedef int32_t(__stdcall* BINKCOPYTOBUFFER)(BINK* bnk, void* dest,
                                              uint32_t destheight,
                                              uint32_t destx, uint32_t desty,
                                              uint32_t flags);
-typedef int32_t(__stdcall* BINKSETVOLUME)(BINK* bnk, int32_t unk1,
-                                          int32_t volume);
 static BINKOPEN BinkOpen = NULL;
 static BINKCLOSE BinkClose = NULL;
 static BINKCOPYTOBUFFER BinkCopyToBuffer = NULL;
-static BINKSETVOLUME BinkSetVolume = NULL;
 
 typedef struct {
   char isOpen;
@@ -49,18 +48,96 @@ typedef struct {
   float volume;
 } MgsBink_t;
 
-typedef int(__thiscall* MgsBinkSetPausedProc)(MgsBink_t* pThis, char paused);
-static MgsBinkSetPausedProc gameExeMgsBinkSetPaused = NULL;
-static MgsBinkSetPausedProc gameExeMgsBinkSetPausedReal = NULL;
+// HQ audio rewrite: Replacing decoded audio _in Bink_ with ours
+// In our decompAudioInner replacement, we need to output previously decoded
+// audio (discard less than we're decoding anew), hence the ring buffer
+
+static const int CHANNEL_COUNT = 2;
+static const int RINGBUFFER_CAPACITY =
+    (4 * CHANNEL_COUNT * 0x800);  // 2 channels, 4 chunks (only ever seen 2 in
+                                  // tests), 0x800 samples per channel per chunk
+                                  // - double what we might ever need
+static short ringbuffer[RINGBUFFER_CAPACITY];
+static int rb_read_index;
+static int rb_write_index;
+static size_t rb_available_samples;
+
+// global because we don't have an easy way of getting to the bink handle in
+// decompAudioInner, and so we don't add a map lookup to the hot path careful
+// with multiple videos playing at once, if that's ever possible?
+static stb_vorbis* pVorbis = NULL;
+static std::string* pVorbisFile = NULL;
+
+void rb_init() {
+  rb_read_index = rb_write_index = rb_available_samples = 0;
+  memset(ringbuffer, 0, RINGBUFFER_CAPACITY * sizeof(short));
+}
+size_t rb_read(short* dest, size_t samples) {
+  if (samples > rb_available_samples) {
+    // fetch more samples from vorbis decoder
+    size_t fetch_total = samples - rb_available_samples;
+    size_t fetch_first = min(fetch_total, RINGBUFFER_CAPACITY - rb_write_index);
+    size_t actual_fetched_first = 0;
+    if (fetch_first > 0) {
+      actual_fetched_first = stb_vorbis_get_samples_short_interleaved(
+                                 pVorbis, CHANNEL_COUNT,
+                                 ringbuffer + rb_write_index, fetch_first) *
+                             CHANNEL_COUNT;
+      rb_write_index += actual_fetched_first;
+    }
+    rb_available_samples += actual_fetched_first;
+
+    // wrap around if necessary
+    // TODO: handle fetching more than two iterations (rest of first + entire
+    // RINGBUFFER_CAPACITY second)? that much should _never_ be requested though
+    size_t fetch_second =
+        min(fetch_total - actual_fetched_first, RINGBUFFER_CAPACITY);
+    size_t actual_fetched_second = 0;
+    if (fetch_second > 0) {
+      // note: in this case rb_write_index is at capacity, start from the
+      // beginning
+      actual_fetched_second =
+          stb_vorbis_get_samples_short_interleaved(pVorbis, CHANNEL_COUNT,
+                                                   ringbuffer, fetch_second) *
+          CHANNEL_COUNT;
+      rb_write_index = actual_fetched_second;
+    }
+    rb_available_samples += actual_fetched_second;
+  }
+
+  size_t samples_to_output_total = min(rb_available_samples, samples);
+  size_t samples_to_output_first =
+      min(samples_to_output_total, RINGBUFFER_CAPACITY - rb_read_index);
+  size_t samples_to_output_second =
+      samples_to_output_total - samples_to_output_first;
+  memcpy(dest, &ringbuffer[rb_read_index],
+         sizeof(short) * samples_to_output_first);
+  if (samples_to_output_second > 0)
+    memcpy(dest + samples_to_output_first, ringbuffer,
+           sizeof(short) * samples_to_output_second);
+  return samples_to_output_total;
+}
+void rb_consume(size_t samples) {
+  samples = min(samples, rb_available_samples);
+  rb_available_samples -= samples;
+  rb_read_index += samples;
+  rb_read_index %= RINGBUFFER_CAPACITY;
+}
+
+typedef void(__cdecl* DecompAudioInnerProc)(
+    int samplesPerChannelPerChunk, float a5, size_t chunkCount,
+    char* overlapSrcBase, int* a8, unsigned int a9, int a10, int a11,
+    char* dest, unsigned int overlapCtBytes, int a14, char* overlapDest);
+static DecompAudioInnerProc binkDllDecompAudioInner =
+    NULL;  // = (DecompAudioInnerProc)0x10025EF0; (C;C)
+static DecompAudioInnerProc binkDllDecompAudioInnerReal = NULL;
 
 typedef struct {
-  uint32_t bgmId;
   void* framebuffer;
   uint32_t destwidth;
   uint32_t destheight;
   uint32_t lastFrameNum;
   csri_inst* csri;
-  int bgmState;
 } BinkModState_t;
 
 static std::unordered_map<BINK*, BinkModState_t*> stateMap;
@@ -73,21 +150,22 @@ void __stdcall BinkCloseHook(BINK* bnk);
 int32_t __stdcall BinkCopyToBufferHook(BINK* bnk, void* dest, int32_t destpitch,
                                        uint32_t destheight, uint32_t destx,
                                        uint32_t desty, uint32_t flags);
-int32_t __stdcall BinkSetVolumeHook(BINK* bnk, int32_t unk1, int32_t volume);
-int __fastcall mgsBinkSetPausedHook(MgsBink_t* pThis, void* EDX, char paused);
+void __cdecl decompAudioInnerHook(int samplesPerChannelPerChunk, float a5,
+                                  size_t chunkCount, char* overlapSrcBase,
+                                  int* a8, unsigned int a9, int a10, int a11,
+                                  char* dest, unsigned int overlapCtBytes,
+                                  int a14, char* overlapDest);
 
 bool binkModInit() {
-  if (!createEnableApiHook(L"bink2w32", "_BinkSetVolume@12", BinkSetVolumeHook,
-                           (LPVOID*)&BinkSetVolume) ||
-      !createEnableApiHook(L"bink2w32", "_BinkOpen@8", BinkOpenHook,
+  if (!createEnableApiHook(L"bink2w32", "_BinkOpen@8", BinkOpenHook,
                            (LPVOID*)&BinkOpen) ||
       !createEnableApiHook(L"bink2w32", "_BinkClose@4", BinkCloseHook,
                            (LPVOID*)&BinkClose) ||
       !createEnableApiHook(L"bink2w32", "_BinkCopyToBuffer@28",
                            BinkCopyToBufferHook, (LPVOID*)&BinkCopyToBuffer) ||
       !scanCreateEnableHook(
-          "game", "mgsBinkSetPaused", (uintptr_t*)&gameExeMgsBinkSetPaused,
-          (LPVOID)&mgsBinkSetPausedHook, (LPVOID*)&gameExeMgsBinkSetPausedReal))
+          "bink2w32", "decompAudioInner", (uintptr_t*)&binkDllDecompAudioInner,
+          decompAudioInnerHook, (LPVOID*)&binkDllDecompAudioInnerReal))
     return false;
 
   if (Config::fmv().j.count("fonts") == 1) {
@@ -137,19 +215,39 @@ BINK* __stdcall BinkOpenHook(const char* name, uint32_t flags) {
 
   if (Config::config().j["fmv"]["useHqAudio"].get<bool>() == true &&
 	  Config::fmv().j["audioRedirection"].count(tmp) == 1) {
-    // TODO: temporarily set BGM volume to match movie volume, then revert in
-    // BinkCloseHook
-    // TODO: support using audio from 720p Bink videos in 1080p
-    // ...meh, if the music's fine who cares
-    uint32_t bgmId = Config::fmv().j["audioRedirection"][tmp].get<uint32_t>();
-    gameSetBgm(bgmId, false);
-    // we'll disable Bink audio in BinkSetVolumeHook. If we tried to do it here,
-    // the game would just override it. If we tried to use BinkSetSoundOnOff,
-    // the video wouldn't show (maybe the game thinks there's been an error).
-    state->bgmId = bgmId;
-    state->bgmState = 0;
-  } else {
-    state->bgmId = 0;
+    if (pVorbis != NULL) {
+      std::stringstream ss;
+      ss << "Started playing another video with audio redirection configured, "
+            "while audio redirection decoder still up: "
+         << name;
+      LanguageBarrierLog(ss.str());
+    } else {
+      std::string audioPath =
+          "languagebarrier\\audio\\" +
+          Config::fmv().j["audioRedirection"][tmp].get<std::string>();
+
+      std::ifstream ain(audioPath, std::ios::in | std::ios::binary);
+      if (ain.good()) {
+        ain.seekg(0, std::ios::end);
+        pVorbisFile = new std::string(ain.tellg(), 0);
+        ain.seekg(0, std::ios::beg);
+        ain.read(&(*pVorbisFile)[0], pVorbisFile->size());
+      }
+      ain.close();
+
+      int vorbisError;
+      pVorbis = stb_vorbis_open_memory((const unsigned char*)pVorbisFile->c_str(), pVorbisFile->size(), &vorbisError, NULL);
+      if (pVorbis == NULL) {
+        std::stringstream ss;
+        ss << "Error while trying to open audio redirection at '" << audioPath
+           << "' for video '" << tmp << "', error code: " << vorbisError;
+        LanguageBarrierLog(ss.str());
+        delete pVorbisFile;
+        pVorbisFile = NULL;
+      } else {
+        rb_init();
+      }
+    }
   }
 
   std::string subFileName;
@@ -202,11 +300,13 @@ void __stdcall BinkCloseHook(BINK* bnk) {
   if (state->csri) {
     csri_close(state->csri);
   }
-  if (state->bgmId) {
-    // Not cargoculting: the game doesn't always set a new BGM after playing a
-    // video
-    gameSetBgm(BGM_CLEAR, true);
-    gameSetBgmShouldPlay(false);
+  if (pVorbis != NULL) {
+    stb_vorbis_close(pVorbis);
+    pVorbis = NULL;
+  }
+  if (pVorbisFile != NULL) {
+    delete pVorbisFile;
+    pVorbisFile = NULL;
   }
   free(state);
   stateMap.erase(bnk);
@@ -220,11 +320,12 @@ int32_t __stdcall BinkCopyToBufferHook(BINK* bnk, void* dest, int32_t destpitch,
                             flags);
   BinkModState_t* state = stateMap[bnk];
 
+  uint32_t destwidth = destpitch / 4;
+
   if (state->csri == NULL)
     return BinkCopyToBuffer(bnk, dest, destpitch, destheight, destx, desty,
                             flags);
 
-  uint32_t destwidth = destpitch / 4;
   double time = ((double)bnk->FrameRateDiv * (double)bnk->FrameNum) /
                 (double)bnk->FrameRate;
   size_t align = SimdAlignment();
@@ -280,23 +381,22 @@ int32_t __stdcall BinkCopyToBufferHook(BINK* bnk, void* dest, int32_t destpitch,
   return retval;
 }
 
-int32_t __stdcall BinkSetVolumeHook(BINK* bnk, int32_t unk1, int32_t volume) {
-  if (stateMap.count(bnk) == 0) return BinkSetVolume(bnk, unk1, volume);
-  BinkModState_t* state = stateMap[bnk];
-  if (state->bgmId) return BinkSetVolume(bnk, unk1, 0);
-  return BinkSetVolume(bnk, unk1, volume);
-}
+void __cdecl decompAudioInnerHook(int samplesPerChannelPerChunk, float a5,
+                                  size_t chunkCount, char* overlapSrcBase,
+                                  int* a8, unsigned int a9, int a10, int a11,
+                                  char* dest, unsigned int overlapCtBytes,
+                                  int a14, char* overlapDest) {
+  if (pVorbis == NULL)
+    return binkDllDecompAudioInnerReal(
+        samplesPerChannelPerChunk, a5, chunkCount, overlapSrcBase, a8, a9, a10,
+        a11, dest, overlapCtBytes, a14, overlapDest);
 
-int __fastcall mgsBinkSetPausedHook(MgsBink_t* pThis, void* EDX, char paused) {
-  if (stateMap.count(pThis->pBink) != 0) {
-    BinkModState_t* state = stateMap[pThis->pBink];
-    if (state->bgmId != 0) {
-      // gameSetBgmPaused(paused);
-      // unfortunately we can't pause BGM without desyncing right now
-      // so let's just allow the video to run in the background
-      return 0;
-    }
-  }
-  return gameExeMgsBinkSetPausedReal(pThis, paused);
+  // note: rb_read and rb_consume take shorts, memmove takes bytes
+  rb_read((short*)dest, CHANNEL_COUNT * samplesPerChannelPerChunk * chunkCount);
+  rb_consume(CHANNEL_COUNT * samplesPerChannelPerChunk -
+             (overlapCtBytes / sizeof(short)));
+  memmove(overlapSrcBase,
+          dest + sizeof(short) * CHANNEL_COUNT * samplesPerChannelPerChunk,
+          sizeof(short) * CHANNEL_COUNT * samplesPerChannelPerChunk);
 }
 }  // namespace lb

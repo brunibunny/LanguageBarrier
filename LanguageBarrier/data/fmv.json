@@ -33,16 +33,7 @@
         "nullpo": "nullpo"
     },
     "audioRedirection": {
-        "op.bk2": 68,
-        "ar.bk2": 81,
-        "op2.bk2": 130,
-        "ending_c.bk2": 72,
-        "ending_f.bk2": 72,
-        "ending_m.bk2": 72,
-        "ending_r.bk2": 72,
-        "ending_s.bk2": 72,
-        "imv041.bk2": 128,
-        "imv042.bk2": 129
+        "nullpo": "nullpo"
     },
     "fonts": [
         "Aller_Rg.ttf",
