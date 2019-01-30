@@ -205,6 +205,11 @@
             "pattern": "55 8B EC 8A 45 08 38 41 02 74 03 88 41 02 33 C0 5D C2 04 00",
             "offset": 0,
             "occurrence": 0
+        },
+        "clibFopen": {
+            "pattern": "55 8B EC 6A 40 FF 75 0C FF 75 08 E8 2C FF FF FF 83 C4 0C 5D C3",
+            "offset": 0,
+            "occurrence": 0
         }
     }
 }

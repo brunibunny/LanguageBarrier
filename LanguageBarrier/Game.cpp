@@ -36,6 +36,10 @@ typedef int(__thiscall *CloseAllSystemsProc)(void *pThis);
 static CloseAllSystemsProc gameExeCloseAllSystems = NULL;
 static CloseAllSystemsProc gameExeCloseAllSystemsReal = NULL;
 
+typedef FILE *(__cdecl *FopenProc)(const char *filename, const char *mode);
+static FopenProc gameExeClibFopen = NULL;
+static FopenProc gameExeClibFopenReal = NULL;
+
 typedef struct {
   int position;
   char gap4[1];
@@ -127,6 +131,7 @@ int __fastcall mpkFopenByIdHook(void *pThis, void *EDX, void *mpkObject,
 int __cdecl mpkFslurpByIdHook(uint8_t mpkId, int fileId, void **pOutData);
 const char *__cdecl getStringFromScriptHook(int scriptId, int stringId);
 int __fastcall closeAllSystemsHook(void *pThis, void *EDX);
+FILE *__cdecl clibFopenHook(const char *filename, const char *mode);
 
 void gameInit() {
   std::ifstream in("languagebarrier\\stringReplacementTable.bin",
@@ -154,14 +159,14 @@ void gameInit() {
   if (!scanCreateEnableHook("game", "earlyInit", (uintptr_t *)&gameExeEarlyInit,
                             (LPVOID)&earlyInitHook,
                             (LPVOID *)&gameExeEarlyInitReal) ||
-      !scanCreateEnableHook(
-          "game", "mpkFslurpById", (uintptr_t *)&gameExeMpkFslurpById,
-          (LPVOID)mpkFslurpByIdHook, (LPVOID *)&gameExeMpkFslurpByIdReal) ||
       !scanCreateEnableHook("game", "getStringFromScript",
                             (uintptr_t *)&gameExeGetStringFromScript,
                             (LPVOID)getStringFromScriptHook,
-                            (LPVOID *)&gameExeGetStringFromScriptReal))
-    return;
+                            (LPVOID *)&gameExeGetStringFromScriptReal) ||
+      !scanCreateEnableHook("game", "clibFopen", (uintptr_t *)&gameExeClibFopen,
+                            (LPVOID)clibFopenHook,
+                            (LPVOID *)&gameExeClibFopenReal))
+return;
 
   if (Config::config().j["general"]["exitBlackScreenFix"].get<bool>() == true) {
     if (!scanCreateEnableHook(
@@ -323,6 +328,27 @@ int __fastcall closeAllSystemsHook(void *pThis, void *EDX) {
   }
 
   return retval;
+}
+
+FILE *clibFopenHook(const char *filename, const char *mode) {
+	const char *tmp = filename;
+	if (strrchr(tmp, '\\')) tmp = strrchr(tmp, '\\') + 1;
+	if (strrchr(tmp, '/')) tmp = strrchr(tmp, '/') + 1;
+
+	if (Config::fileredirection().j["physicalFileRedirection"].count(tmp) == 1) {
+		std::stringstream newPath;
+		newPath
+			<< "languagebarrier\\"
+			<< Config::fileredirection().j["physicalFileRedirection"][tmp].get<std::string>();
+
+		std::stringstream logstr;
+		logstr << "redirecting physical fopen " << tmp << " to " << newPath.str();
+		LanguageBarrierLog(logstr.str());
+
+		return gameExeClibFopenReal(newPath.str().c_str(), mode);
+	}
+
+	return gameExeClibFopenReal(filename, mode);
 }
 
 // TODO: I probably shouldn't be writing these in assembly given it looks like
